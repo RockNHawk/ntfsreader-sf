@@ -36,7 +36,7 @@ namespace System.IO.Filesystem.Ntfs
     public interface IDiskInfo
     {
         UInt16 BytesPerSector { get; }
-        byte   SectorsPerCluster { get; }
+        byte SectorsPerCluster { get; }
         UInt64 TotalSectors { get; }
         UInt64 MftStartLcn { get; }
         UInt64 Mft2StartLcn { get; }

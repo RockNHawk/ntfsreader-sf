@@ -28,6 +28,7 @@
     Software Architect
     mailto:zerk666@gmail.com
 */
+/*
 using System.Collections.Generic;
 using System.Text;
 
@@ -72,7 +73,7 @@ namespace System.IO.Filesystem.Ntfs
                 node = fullPathNodes.Pop();
 
                 fullPath.Append(GetNameFromIndex(_nodes[node].NameIndex));
-                
+
                 if (fullPathNodes.Count > 0)
                     fullPath.Append(@"\");
             }
@@ -86,3 +87,4 @@ namespace System.IO.Filesystem.Ntfs
         }
     }
 }
+*/

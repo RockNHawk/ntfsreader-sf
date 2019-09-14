@@ -32,539 +32,15 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace System.IO.Filesystem.Ntfs
 {
-    public sealed partial class NtfsReader : IDisposable
+
+
+    internal sealed partial class NtfsReader : IDisposable
     {
-        #region Ntfs Structures
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private unsafe struct BootSector
-        {
-            fixed byte AlignmentOrReserved1[3];
-            public UInt64 Signature;
-            public UInt16 BytesPerSector;
-            public byte SectorsPerCluster;
-            fixed byte AlignmentOrReserved2[26];
-            public UInt64 TotalSectors;
-            public UInt64 MftStartLcn;
-            public UInt64 Mft2StartLcn;
-            public UInt32 ClustersPerMftRecord;
-            public UInt32 ClustersPerIndexRecord;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct VolumeData
-        {
-            public UInt64 VolumeSerialNumber;
-            public UInt64 NumberSectors;
-            public UInt64 TotalClusters;
-            public UInt64 FreeClusters;
-            public UInt64 TotalReserved;
-            public UInt32 BytesPerSector;
-            public UInt32 BytesPerCluster;
-            public UInt32 BytesPerFileRecordSegment;
-            public UInt32 ClustersPerFileRecordSegment;
-            public UInt64 MftValidDataLength;
-            public UInt64 MftStartLcn;
-            public UInt64 Mft2StartLcn;
-            public UInt64 MftZoneStart;
-            public UInt64 MftZoneEnd;
-        }
-
-        private enum RecordType : uint
-        {
-            File = 0x454c4946,  //'FILE' in ASCII
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct RecordHeader
-        {
-            public RecordType Type;                  /* File type, for example 'FILE' */
-            public UInt16 UsaOffset;             /* Offset to the Update Sequence Array */
-            public UInt16 UsaCount;              /* Size in words of Update Sequence Array */
-            public UInt64 Lsn;                   /* $LogFile Sequence Number (LSN) */
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct INodeReference
-        {
-            public UInt32 InodeNumberLowPart;
-            public UInt16 InodeNumberHighPart;
-            public UInt16 SequenceNumber;
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct FileRecordHeader
-        {
-            public RecordHeader RecordHeader;
-            public UInt16 SequenceNumber;        /* Sequence number */
-            public UInt16 LinkCount;             /* Hard link count */
-            public UInt16 AttributeOffset;       /* Offset to the first Attribute */
-            public UInt16 Flags;                 /* Flags. bit 1 = in use, bit 2 = directory, bit 4 & 8 = unknown. */
-            public UInt32 BytesInUse;             /* Real size of the FILE record */
-            public UInt32 BytesAllocated;         /* Allocated size of the FILE record */
-            public INodeReference BaseFileRecord;     /* File reference to the base FILE record */
-            public UInt16 NextAttributeNumber;   /* Next Attribute Id */
-            public UInt16 Padding;               /* Align to 4 UCHAR boundary (XP) */
-            public UInt32 MFTRecordNumber;        /* Number of this MFT Record (XP) */
-            public UInt16 UpdateSeqNum;          /*  */
-        };
-
-        private enum AttributeType : uint
-        {
-            AttributeInvalid = 0x00,         /* Not defined by Windows */
-            AttributeStandardInformation = 0x10,
-            AttributeAttributeList = 0x20,
-            AttributeFileName = 0x30,
-            AttributeObjectId = 0x40,
-            AttributeSecurityDescriptor = 0x50,
-            AttributeVolumeName = 0x60,
-            AttributeVolumeInformation = 0x70,
-            AttributeData = 0x80,
-            AttributeIndexRoot = 0x90,
-            AttributeIndexAllocation = 0xA0,
-            AttributeBitmap = 0xB0,
-            AttributeReparsePoint = 0xC0,         /* Reparse Point = Symbolic link */
-            AttributeEAInformation = 0xD0,
-            AttributeEA = 0xE0,
-            AttributePropertySet = 0xF0,
-            AttributeLoggedUtilityStream = 0x100
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct Attribute
-        {
-            public AttributeType AttributeType;
-            public UInt32 Length;
-            public byte Nonresident;
-            public byte NameLength;
-            public UInt16 NameOffset;
-            public UInt16 Flags;              /* 0x0001 = Compressed, 0x4000 = Encrypted, 0x8000 = Sparse */
-            public UInt16 AttributeNumber;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private unsafe struct AttributeList
-        {
-            public AttributeType AttributeType;
-            public UInt16 Length;
-            public byte NameLength;
-            public byte NameOffset;
-            public UInt64 LowestVcn;
-            public INodeReference FileReferenceNumber;
-            public UInt16 Instance;
-            public fixed UInt16 AlignmentOrReserved[3];
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct AttributeFileName
-        {
-            public INodeReference ParentDirectory;
-            public UInt64 CreationTime;
-            public UInt64 ChangeTime;
-            public UInt64 LastWriteTime;
-            public UInt64 LastAccessTime;
-            public UInt64 AllocatedSize;
-            public UInt64 DataSize;
-            public UInt32 FileAttributes;
-            public UInt32 AlignmentOrReserved;
-            public byte NameLength;
-            public byte NameType;                 /* NTFS=0x01, DOS=0x02 */
-            public char Name;
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct AttributeStandardInformation
-        {
-            public UInt64 CreationTime;
-            public UInt64 FileChangeTime;
-            public UInt64 MftChangeTime;
-            public UInt64 LastAccessTime;
-            public UInt32 FileAttributes;       /* READ_ONLY=0x01, HIDDEN=0x02, SYSTEM=0x04, VOLUME_ID=0x08, ARCHIVE=0x20, DEVICE=0x40 */
-            public UInt32 MaximumVersions;
-            public UInt32 VersionNumber;
-            public UInt32 ClassId;
-            public UInt32 OwnerId;                        // NTFS 3.0 only
-            public UInt32 SecurityId;                     // NTFS 3.0 only
-            public UInt64 QuotaCharge;                // NTFS 3.0 only
-            public UInt64 Usn;                              // NTFS 3.0 only
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct ResidentAttribute
-        {
-            public Attribute Attribute;
-            public UInt32 ValueLength;
-            public UInt16 ValueOffset;
-            public UInt16 Flags;               // 0x0001 = Indexed
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private unsafe struct NonResidentAttribute
-        {
-            public Attribute Attribute;
-            public UInt64 StartingVcn;
-            public UInt64 LastVcn;
-            public UInt16 RunArrayOffset;
-            public byte CompressionUnit;
-            public fixed byte AlignmentOrReserved[5];
-            public UInt64 AllocatedSize;
-            public UInt64 DataSize;
-            public UInt64 InitializedSize;
-            public UInt64 CompressedSize;    // Only when compressed
-        };
-
-        [StructLayout(LayoutKind.Sequential, Pack = 1)]
-        private struct Fragment
-        {
-            public UInt64 Lcn;                // Logical cluster number, location on disk.
-            public UInt64 NextVcn;            // Virtual cluster number of next fragment.
-
-            public Fragment(UInt64 lcn, UInt64 nextVcn)
-            {
-                Lcn = lcn;
-                NextVcn = nextVcn;
-            }
-        }
-
-        #endregion
-
-        #region Private Classes
-
-        private sealed class Stream
-        {
-            public UInt64 Clusters;                      // Total number of clusters.
-            public UInt64 Size;                          // Total number of bytes.
-            public AttributeType Type;
-            public int NameIndex;
-            public List<Fragment> _fragments;
-
-            public Stream(int nameIndex, AttributeType type, UInt64 size)
-            {
-                NameIndex = nameIndex;
-                Type = type;
-                Size = size;
-            }
-
-            public List<Fragment> Fragments
-            {
-                get
-                {
-                    if (_fragments == null)
-                        _fragments = new List<Fragment>(5);
-
-                    return _fragments;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Node struct for file and directory entries
-        /// </summary>
-        /// <remarks>
-        /// We keep this as small as possible to reduce footprint for large volume.
-        /// </remarks>
-        private struct Node
-        {
-            public Attributes Attributes;
-            public UInt32 ParentNodeIndex;
-            public UInt64 Size;
-            public int NameIndex;
-        }
-
-        /// <summary>
-        /// Contains extra information not required for basic purposes.
-        /// </summary>
-        private struct StandardInformation
-        {
-            public UInt64 CreationTime;
-            public UInt64 LastAccessTime;
-            public UInt64 LastChangeTime;
-
-            public StandardInformation(
-                UInt64 creationTime,
-                UInt64 lastAccessTime,
-                UInt64 lastChangeTime
-                )
-            {
-                CreationTime = creationTime;
-                LastAccessTime = lastAccessTime;
-                LastChangeTime = lastChangeTime;
-            }
-        }
-
-        /// <summary>
-        /// Add some functionality to the basic stream
-        /// </summary>
-        private sealed class FragmentWrapper : IFragment
-        {
-            StreamWrapper _owner;
-            Fragment _fragment;
-
-            public FragmentWrapper(StreamWrapper owner, Fragment fragment)
-            {
-                _owner = owner;
-                _fragment = fragment;
-            }
-
-            #region IFragment Members
-
-            public ulong Lcn
-            {
-                get { return _fragment.Lcn; }
-            }
-
-            public ulong NextVcn
-            {
-                get { return _fragment.NextVcn; }
-            }
-
-            #endregion
-        }
-
-        /// <summary>
-        /// Add some functionality to the basic stream
-        /// </summary>
-        private sealed class StreamWrapper : IStream
-        {
-            NtfsReader _reader;
-            NodeWrapper _parentNode;
-            int _streamIndex;
-
-            public StreamWrapper(NtfsReader reader, NodeWrapper parentNode, int streamIndex)
-            {
-                _reader = reader;
-                _parentNode = parentNode;
-                _streamIndex = streamIndex;
-            }
-
-            #region IStream Members
-
-            public string Name
-            {
-                get 
-                {
-                    return _reader.GetNameFromIndex(_reader._streams[_parentNode.NodeIndex][_streamIndex].NameIndex);
-                }
-            }
-
-            public UInt64 Size
-            {
-                get
-                {
-                    return _reader._streams[_parentNode.NodeIndex][_streamIndex].Size;
-                }
-            }
-
-            public IList<IFragment> Fragments
-            {
-                get 
-                {
-                    //if ((_reader._retrieveMode & RetrieveMode.Fragments) != RetrieveMode.Fragments)
-                    //    throw new NotSupportedException("The fragments haven't been retrieved. Make sure to use the proper RetrieveMode.");
-
-                    IList<Fragment> fragments =
-                        _reader._streams[_parentNode.NodeIndex][_streamIndex].Fragments;
-
-                    if (fragments == null || fragments.Count == 0)
-                        return null;
-
-                    List<IFragment> newFragments = new List<IFragment>();
-                    foreach (Fragment fragment in fragments)
-                        newFragments.Add(new FragmentWrapper(this, fragment));
-
-                    return newFragments;
-                }
-            }
-
-            #endregion
-        }
-
-        /// <summary>
-        /// Add some functionality to the basic node
-        /// </summary>
-        private sealed class NodeWrapper : INode
-        {
-            NtfsReader _reader;
-            UInt32 _nodeIndex;
-            Node _node;
-            string _fullName;
-
-            public NodeWrapper(NtfsReader reader, UInt32 nodeIndex, Node node)
-            {
-                _reader = reader;
-                _nodeIndex = nodeIndex;
-                _node = node;
-            }
-
-            public UInt32 NodeIndex
-            {
-                get { return _nodeIndex; }
-            }
-
-            public UInt32 ParentNodeIndex
-            {
-                get { return _node.ParentNodeIndex; }
-            }
-
-            public Attributes Attributes
-            {
-                get { return _node.Attributes; }
-            }
-
-            public string Name
-            {
-                get { return _reader.GetNameFromIndex(_node.NameIndex); }
-            }
-
-            public UInt64 Size
-            {
-                get { return _node.Size; }
-            }
-
-            public string FullName
-            {
-                get
-                {
-                    if (_fullName == null)
-                        _fullName = _reader.GetNodeFullNameCore(_nodeIndex);
-
-                    return _fullName;
-                }
-            }
-
-            public IList<IStream> Streams
-            {
-                get 
-                {
-                    if (_reader._streams == null)
-                        throw new NotSupportedException("The streams haven't been retrieved. Make sure to use the proper RetrieveMode.");
-
-                    Stream[] streams = _reader._streams[_nodeIndex];
-                    if (streams == null)
-                        return null;
-
-                    List<IStream> newStreams = new List<IStream>();
-                    for (int i = 0; i < streams.Length; ++i)
-                        newStreams.Add(new StreamWrapper(_reader, this, i));
-
-                    return newStreams;
-                }
-            }
-
-            #region INode Members
-
-            public DateTime CreationTime
-            {
-                get 
-                {
-                    if (_reader._standardInformations == null)
-                        throw new NotSupportedException("The StandardInformation haven't been retrieved. Make sure to use the proper RetrieveMode.");
-
-                    return DateTime.FromFileTimeUtc((Int64)_reader._standardInformations[_nodeIndex].CreationTime);
-                }
-            }
-
-            public DateTime LastChangeTime
-            {
-                get 
-                {
-                    if (_reader._standardInformations == null)
-                        throw new NotSupportedException("The StandardInformation haven't been retrieved. Make sure to use the proper RetrieveMode.");
-
-                    return DateTime.FromFileTimeUtc((Int64)_reader._standardInformations[_nodeIndex].LastChangeTime);
-                }
-            }
-
-            public DateTime LastAccessTime
-            {
-                get 
-                {
-                    if (_reader._standardInformations == null)
-                        throw new NotSupportedException("The StandardInformation haven't been retrieved. Make sure to use the proper RetrieveMode.");
-
-                    return DateTime.FromFileTimeUtc((Int64)_reader._standardInformations[_nodeIndex].LastAccessTime);
-                }
-            }
-
-            #endregion
-        }
-
-        /// <summary>
-        /// Simple structure of available disk informations.
-        /// </summary>
-        private sealed class DiskInfoWrapper : IDiskInfo
-        {
-            public UInt16 BytesPerSector;
-            public byte SectorsPerCluster;
-            public UInt64 TotalSectors;
-            public UInt64 MftStartLcn;
-            public UInt64 Mft2StartLcn;
-            public UInt32 ClustersPerMftRecord;
-            public UInt32 ClustersPerIndexRecord;
-            public UInt64 BytesPerMftRecord;
-            public UInt64 BytesPerCluster;
-            public UInt64 TotalClusters;
-
-            #region IDiskInfo Members
-
-            ushort IDiskInfo.BytesPerSector
-            {
-                get { return BytesPerSector; }
-            }
-
-            byte IDiskInfo.SectorsPerCluster
-            {
-                get { return SectorsPerCluster; }
-            }
-
-            ulong IDiskInfo.TotalSectors
-            {
-                get { return TotalSectors; }
-            }
-
-            ulong IDiskInfo.MftStartLcn
-            {
-                get { return MftStartLcn; }
-            }
-
-            ulong IDiskInfo.Mft2StartLcn
-            {
-                get { return Mft2StartLcn; }
-            }
-
-            uint IDiskInfo.ClustersPerMftRecord
-            {
-                get { return ClustersPerMftRecord; }
-            }
-
-            uint IDiskInfo.ClustersPerIndexRecord
-            {
-                get { return ClustersPerIndexRecord; }
-            }
-
-            ulong IDiskInfo.BytesPerMftRecord
-            {
-                get { return BytesPerMftRecord; }
-            }
-
-            ulong IDiskInfo.BytesPerCluster
-            {
-                get { return BytesPerCluster; }
-            }
-
-            ulong IDiskInfo.TotalClusters
-            {
-                get { return TotalClusters; }
-            }
-
-            #endregion
-        }
-
-        #endregion
 
         #region Constants
 
@@ -580,20 +56,26 @@ namespace System.IO.Filesystem.Ntfs
         //so everything should be transparent
         string _locallyMappedDriveRootPath;
         string _rootPath;
+
         SafeFileHandle _volumeHandle;
         DiskInfoWrapper _diskInfo;
-        Node[] _nodes;
-        StandardInformation[] _standardInformations;
-        Stream[][] _streams;
-        DriveInfo _driveInfo;
-        List<string> _names = new List<string>();
-        RetrieveMode _retrieveMode;
+        readonly DriveInfo _driveInfo;
+        readonly RetrieveMode _retrieveMode;
         byte[] _bitmapData;
 
-        //preallocate a lot of space for the strings to avoid too much dictionary resizing
-        //use ordinal comparison to improve performance
-        //this will be deallocated once the MFT reading is finished
-        Dictionary<string, int> _nameIndex = new Dictionary<string, int>(128 * 1024, StringComparer.Ordinal);
+        #region Properties
+
+        //public IDiskInfo DiskInfo
+        //{
+        //    get { return _diskInfo; }
+        //}
+
+        public byte[] GetVolumeBitmap()
+        {
+            return _bitmapData;
+        }
+
+        #endregion
 
         #region Events
 
@@ -652,48 +134,33 @@ namespace System.IO.Filesystem.Ntfs
             return new DriveInfo(Path.GetPathRoot(_locallyMappedDriveRootPath));
         }
 
-        /// <summary>
-        /// Allocate or retrieve an existing index for the particular string.
-        /// </summary>
-        ///<remarks>
-        /// In order to mimize memory usage, we reuse string as much as possible.
-        ///</remarks>
-        private int GetNameIndex(string name)
-        {
-            int existingIndex;
-            if (_nameIndex.TryGetValue(name, out existingIndex))
-                return existingIndex;
 
-            _names.Add(name);
-            _nameIndex[name] = _names.Count - 1;
+        //private string GetNameIndex(string name)
+        //{
+        //    return name;
+        //}
 
-            return _names.Count - 1;
-        }
+        //private string GetNameFromIndex(string nameIndex)
+        //{
+        //    return nameIndex;
+        //}
 
-        /// <summary>
-        /// Get the string from our stringtable from the given index.
-        /// </summary>
-        private string GetNameFromIndex(int nameIndex)
-        {
-            return nameIndex == 0 ? null : _names[nameIndex];
-        }
-
-        private Stream SearchStream(List<Stream> streams, AttributeType streamType)
+        private NtfsStream SearchStream(List<NtfsStream> streams, AttributeType streamType)
         {
             //since the number of stream is usually small, we can afford O(n)
-            foreach (Stream stream in streams)
+            foreach (NtfsStream stream in streams)
                 if (stream.Type == streamType)
                     return stream;
 
             return null;
         }
 
-        private Stream SearchStream(List<Stream> streams, AttributeType streamType, int streamNameIndex)
+        private NtfsStream SearchStream(List<NtfsStream> streams, AttributeType streamType, string streamNameIndex)
         {
             //since the number of stream is usually small, we can afford O(n)
-            foreach (Stream stream in streams)
+            foreach (NtfsStream stream in streams)
                 if (stream.Type == streamType &&
-                    stream.NameIndex == streamNameIndex)
+                    stream.Name == streamNameIndex)
                     return stream;
 
             return null;
@@ -713,6 +180,7 @@ namespace System.IO.Filesystem.Ntfs
             ReadFile(buffer, (UInt64)len, absolutePosition);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private unsafe void ReadFile(byte* buffer, UInt64 len, UInt64 absolutePosition)
         {
             NativeOverlapped overlapped = new NativeOverlapped(absolutePosition);
@@ -737,7 +205,7 @@ namespace System.IO.Filesystem.Ntfs
             UInt32 bufferSize,
             UInt32 nodeIndex,
             int fragmentIndex,
-            Stream dataStream,
+            NtfsStream dataNtfsStream,
             ref UInt64 BlockStart,
             ref UInt64 BlockEnd,
             ref UInt64 Vcn,
@@ -746,33 +214,33 @@ namespace System.IO.Filesystem.Ntfs
         {
             BlockStart = nodeIndex;
             BlockEnd = BlockStart + bufferSize / _diskInfo.BytesPerMftRecord;
-            if (BlockEnd > dataStream.Size * 8)
-                BlockEnd = dataStream.Size * 8;
+            if (BlockEnd > dataNtfsStream.Size * 8)
+                BlockEnd = dataNtfsStream.Size * 8;
 
             UInt64 u1 = 0;
 
-            int fragmentCount = dataStream.Fragments.Count;
+            int fragmentCount = dataNtfsStream.Fragments.Count;
             while (fragmentIndex < fragmentCount)
             {
-                Fragment fragment = dataStream.Fragments[fragmentIndex];
+                NtfsFragment ntfsFragment = dataNtfsStream.Fragments[fragmentIndex];
 
                 /* Calculate Inode at the end of the fragment. */
-                u1 = (RealVcn + fragment.NextVcn - Vcn) * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster / _diskInfo.BytesPerMftRecord;
+                u1 = (RealVcn + ntfsFragment.NextVcn - Vcn) * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster / _diskInfo.BytesPerMftRecord;
 
                 if (u1 > nodeIndex)
                     break;
 
                 do
                 {
-                    if (fragment.Lcn != VIRTUALFRAGMENT)
-                        RealVcn = RealVcn + fragment.NextVcn - Vcn;
+                    if (ntfsFragment.Lcn != VIRTUALFRAGMENT)
+                        RealVcn = RealVcn + ntfsFragment.NextVcn - Vcn;
 
-                    Vcn = fragment.NextVcn;
+                    Vcn = ntfsFragment.NextVcn;
 
                     if (++fragmentIndex >= fragmentCount)
                         break;
 
-                } while (fragment.Lcn == VIRTUALFRAGMENT);
+                } while (ntfsFragment.Lcn == VIRTUALFRAGMENT);
             }
 
             if (fragmentIndex >= fragmentCount)
@@ -782,7 +250,7 @@ namespace System.IO.Filesystem.Ntfs
                 BlockEnd = u1;
 
             ulong position =
-                (dataStream.Fragments[fragmentIndex].Lcn - RealVcn) * _diskInfo.BytesPerSector *
+                (dataNtfsStream.Fragments[fragmentIndex].Lcn - RealVcn) * _diskInfo.BytesPerSector *
                     _diskInfo.SectorsPerCluster + BlockStart * _diskInfo.BytesPerMftRecord;
 
             ReadFile(buffer, (BlockEnd - BlockStart) * _diskInfo.BytesPerMftRecord, position);
@@ -941,7 +409,7 @@ namespace System.IO.Filesystem.Ntfs
                     /* Decode the RunData and calculate the next Lcn. */
                     Int32 RunLengthSize = (RunData[Index] & 0x0F);
                     Int32 RunOffsetSize = ((RunData[Index] & 0xF0) >> 4);
-                    
+
                     if (++Index >= RunDataLength)
                         throw new Exception("Error: datarun is longer than buffer, the MFT may be corrupt.");
 
@@ -993,9 +461,14 @@ namespace System.IO.Filesystem.Ntfs
         /// <summary>
         /// Process each attributes and gather information when necessary
         /// </summary>
-        private unsafe void ProcessAttributes(ref Node node, UInt32 nodeIndex, byte* ptr, UInt64 BufLength, UInt16 instance, int depth, List<Stream> streams, bool isMftNode)
+        private unsafe void ProcessAttributes(ref Node node, UInt32 nodeIndex, byte* ptr, UInt64 BufLength, UInt16 instance, int depth, List<NtfsStream> streams, bool isMftNode)
         {
             Attribute* attribute = null;
+
+            //AttributeList* attributeList = null;
+
+//           Guid? fileReferenceNumber ;
+
             for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
             {
                 attribute = (Attribute*)(ptr + AttributeOffset);
@@ -1024,6 +497,28 @@ namespace System.IO.Filesystem.Ntfs
                 {
                     ResidentAttribute* residentAttribute = (ResidentAttribute*)attribute;
 
+                    // 数据不对，同磁盘下所有文件取到的值都一样
+                    //// attributeList is no for required, residentAttribute->ValueOffset value is fixed
+                    //var alPtr = ptr + 0 + residentAttribute->ValueOffset;
+                    //attributeList = (AttributeList*)&alPtr[0];
+
+                    /////* Exit if no more attributes. AttributeLists are usually not closed by the
+                    ////   0xFFFFFFFF endmarker. Reaching the end of the buffer is therefore normal and
+                    ////   not an error. */
+                    ////if (AttributeOffset + 3 > bufLength) break;
+                    ////if (*(UInt32*)attribute == 0xFFFFFFFF) break;
+                    ////if (attribute->Length < 3) break;
+                    ////if (AttributeOffset + attribute->Length > bufLength) break;
+
+                    ///* Extract the referenced Inode. If it's the same as the calling Inode then ignore
+                    //   (if we don't ignore then the program will loop forever, because for some
+                    //   reason the info in the calling Inode is duplicated here...). */
+                    //UInt64 RefInode = ((UInt64)attributeList->FileReferenceNumber.InodeNumberHighPart << 32) + attributeList->FileReferenceNumber.InodeNumberLowPart;
+
+                    ////if (RefInode == node.NodeIndex)
+                    ////    continue;
+
+
                     switch (attribute->AttributeType)
                     {
                         case AttributeType.AttributeFileName:
@@ -1033,10 +528,23 @@ namespace System.IO.Filesystem.Ntfs
                                 throw new NotSupportedException("48 bits inode are not supported to reduce memory footprint.");
 
                             //node.ParentNodeIndex = ((UInt64)attributeFileName->ParentDirectory.InodeNumberHighPart << 32) + attributeFileName->ParentDirectory.InodeNumberLowPart;
+
+                            //var val1 = ((UInt64)attributeFileName->ParentDirectory.InodeNumberHighPart << 32) + attributeFileName->ParentDirectory.InodeNumberLowPart;
+                            //var val2 = attributeFileName->ParentDirectory.SequenceNumber;
+
+                            // InodeNumberLowPart 似乎就是记录的 index
+
                             node.ParentNodeIndex = attributeFileName->ParentDirectory.InodeNumberLowPart;
 
-                            if (attributeFileName->NameType == 1 || node.NameIndex == 0)
-                                node.NameIndex = GetNameIndex(new string(&attributeFileName->Name, 0, attributeFileName->NameLength));
+                            if (node.Name == null || attributeFileName->NameType == 1)
+                                node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+
+                            //FileReferenceNumber = ((UInt64)attributeFileName->ParentDirectory.InodeNumberHighPart << 32) + attributeFileName->ParentDirectory.InodeNumberLowPart;
+
+                            ////if (node.StandardInformation!=null)
+                            //{
+                            //    node.StandardInformation.FileReferenceNumber = FileReferenceNumber;
+                            //}
 
                             break;
 
@@ -1045,19 +553,51 @@ namespace System.IO.Filesystem.Ntfs
 
                             node.Attributes |= (Attributes)attributeStandardInformation->FileAttributes;
 
+                            //attributeStandardInformation->Usn
                             if ((_retrieveMode & RetrieveMode.StandardInformations) == RetrieveMode.StandardInformations)
-                                _standardInformations[nodeIndex] =
-                                    new StandardInformation(
-                                        attributeStandardInformation->CreationTime,
-                                        attributeStandardInformation->FileChangeTime,
-                                        attributeStandardInformation->LastAccessTime
-                                    );
+                            {
+                                //node.StandardInformation = Marshal.PtrToStructure<AttributeStandardInformation>(attributeStandardInformation);
+                                node.StandardInformation =
+                                  new StandardInformation(
+                                      attributeStandardInformation->CreationTime,
+                                      attributeStandardInformation->FileChangeTime,
+                                      attributeStandardInformation->LastAccessTime
+                                  );
+//                                if (fileReferenceNumber!=null)
+//                                {
+//                                    node.StandardInformation.FileReferenceNumber = fileReferenceNumber.Value;
+//                                }
+                            }
 
                             break;
 
                         case AttributeType.AttributeData:
                             node.Size = residentAttribute->ValueLength;
                             break;
+                        case AttributeType.AttributeObjectId:
+//                            AttributeObjectId* fileId = (AttributeObjectId*)(ptr + AttributeOffset + residentAttribute->ValueOffset);
+//                            //var oid = new string((char*)fileId->FileId);
+//                            fileReferenceNumber = fileId->ObjectId;
+//                            node.StandardInformation.FileReferenceNumber = fileReferenceNumber.Value;
+                            //var oid = new string(&fileId->ObjectId, 0, 16);
+                //            var oid = new string((char*)fileId->ObjectId);
+                           // var oid = (new string((char*)(ptr + AttributeOffset + attribute->NameOffset), 0, (int)attribute->NameLength));
+                            //Console.WriteLine(fileId->FileId);    
+
+                            break;
+                            //case AttributeType.AttributeAttributeList:
+                            //   // if (fileReferenceNumber == 0)
+                            //    {
+                            //        fileReferenceNumber = ProcessAttributeList(
+                            //               null,
+                            //               node,
+                            //               ptr + AttributeOffset + residentAttribute->ValueOffset,
+                            //               residentAttribute->ValueLength,
+                            //               depth
+                            //               );
+                            //        node.StandardInformation.FileReferenceNumber = fileReferenceNumber;
+                            //    }
+                            //    break;
                     }
                 }
                 else
@@ -1071,28 +611,28 @@ namespace System.IO.Filesystem.Ntfs
                     if (streams != null)
                     {
                         //extract the stream name
-                        int streamNameIndex = 0;
+                        string streamNameIndex = null;
                         if (attribute->NameLength > 0)
-                            streamNameIndex = GetNameIndex(new string((char*)(ptr + AttributeOffset + attribute->NameOffset), 0, (int)attribute->NameLength));
+                            streamNameIndex = (new string((char*)(ptr + AttributeOffset + attribute->NameOffset), 0, (int)attribute->NameLength));
 
                         //find or create the stream
-                        Stream stream = 
+                        NtfsStream ntfsStream =
                             SearchStream(streams, attribute->AttributeType, streamNameIndex);
 
-                        if (stream == null)
+                        if (ntfsStream == null)
                         {
-                            stream = new Stream(streamNameIndex, attribute->AttributeType, nonResidentAttribute->DataSize);
-                            streams.Add(stream);
+                            ntfsStream = new NtfsStream(streamNameIndex, attribute->AttributeType, nonResidentAttribute->DataSize);
+                            streams.Add(ntfsStream);
                         }
-                        else if (stream.Size == 0)
-                            stream.Size = nonResidentAttribute->DataSize;
+                        else if (ntfsStream.Size == 0)
+                            ntfsStream.Size = nonResidentAttribute->DataSize;
 
                         //we need the fragment of the MFTNode so retrieve them this time
                         //even if fragments aren't normally read
                         if (isMftNode || (_retrieveMode & RetrieveMode.Fragments) == RetrieveMode.Fragments)
                             ProcessFragments(
                                 ref node,
-                                stream,
+                                ntfsStream,
                                 ptr + AttributeOffset + nonResidentAttribute->RunArrayOffset,
                                 attribute->Length - nonResidentAttribute->RunArrayOffset,
                                 nonResidentAttribute->StartingVcn
@@ -1100,6 +640,51 @@ namespace System.IO.Filesystem.Ntfs
                     }
                 }
             }
+
+
+
+
+            //for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
+            //{
+            //    attribute = (Attribute*)&ptr[AttributeOffset];
+
+            //    if (*(UInt32*)attribute == 0xFFFFFFFF)
+            //        break;
+
+            //    if (attribute->AttributeType != AttributeType.AttributeAttributeList)
+            //        continue;
+
+            //    if (attribute->Nonresident == 0)
+            //    {
+            //        ResidentAttribute* residentAttribute = (ResidentAttribute*)attribute;
+
+            //        fileReferenceNumber = ProcessAttributeList(
+            //        _mftDataStream,
+            //        node,
+            //        ptr + AttributeOffset + residentAttribute->ValueOffset,
+            //        residentAttribute->ValueLength,
+            //        depth
+            //        );
+            //        node.StandardInformation.FileReferenceNumber = fileReferenceNumber;
+
+            //    }
+            //    //else
+            //    //{
+            //    //    NonResidentAttribute* nonResidentAttribute = (NonResidentAttribute*)attribute;
+
+            //    //    byte[] buffer =
+            //    //        ProcessNonResidentData(
+            //    //            ptr + AttributeOffset + nonResidentAttribute->RunArrayOffset,
+            //    //            attribute->Length - nonResidentAttribute->RunArrayOffset,
+            //    //            0,
+            //    //            nonResidentAttribute->DataSize
+            //    //      );
+
+            //    //    fixed (byte* bufPtr = buffer)
+            //    //        ProcessAttributeList(node, bufPtr, nonResidentAttribute->DataSize, depth + 1);
+            //    //}
+            //}
+
 
             //for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
             //{
@@ -1143,129 +728,151 @@ namespace System.IO.Filesystem.Ntfs
                 node.Size = streams[0].Size;
         }
 
-        //private unsafe void ProcessAttributeList(Node mftNode, Node node, byte* ptr, UInt64 bufLength, int depth, InterpretMode interpretMode)
-        //{
-        //    if (ptr == null || bufLength == 0)
-        //        return;
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="dataStream">MFT dataStream</param>
+        /// <param name="node"></param>
+        /// <param name="ptr"></param>
+        /// <param name="bufLength"></param>
+        /// <param name="depth"></param>
+        /// <returns></returns>
+        private unsafe UInt64 ProcessAttributeList(NtfsStream dataStream, Node node, byte* ptr, UInt64 bufLength, int depth)
+        {
+            if (ptr == null || bufLength == 0)
+                return 0;
 
-        //    if (depth > 1000)
-        //        throw new Exception("Error: infinite attribute loop, the MFT may be corrupt.");
+            if (depth > 1000)
+                throw new Exception("Error: infinite attribute loop, the MFT may be corrupt.");
 
-        //    AttributeList* attribute = null;
-        //    for (uint AttributeOffset = 0; AttributeOffset < bufLength; AttributeOffset = AttributeOffset + attribute->Length)
-        //    {
-        //        attribute = (AttributeList*)&ptr[AttributeOffset];
+            AttributeList* attribute = null;
+            for (uint AttributeOffset = 0; AttributeOffset < bufLength; AttributeOffset = AttributeOffset + attribute->Length)
+            {
+                attribute = (AttributeList*)&ptr[AttributeOffset];
 
-        //        /* Exit if no more attributes. AttributeLists are usually not closed by the
-        //           0xFFFFFFFF endmarker. Reaching the end of the buffer is therefore normal and
-        //           not an error. */
-        //        if (AttributeOffset + 3 > bufLength) break;
-        //        if (*(UInt32*)attribute == 0xFFFFFFFF) break;
-        //        if (attribute->Length < 3) break;
-        //        if (AttributeOffset + attribute->Length > bufLength) break;
+                /* Exit if no more attributes. AttributeLists are usually not closed by the
+                   0xFFFFFFFF endmarker. Reaching the end of the buffer is therefore normal and
+                   not an error. */
+                if (AttributeOffset + 3 > bufLength) break;
+                if (*(UInt32*)attribute == 0xFFFFFFFF) break;
+                if (attribute->Length < 3) break;
+                if (AttributeOffset + attribute->Length > bufLength) break;
 
-        //        /* Extract the referenced Inode. If it's the same as the calling Inode then ignore
-        //           (if we don't ignore then the program will loop forever, because for some
-        //           reason the info in the calling Inode is duplicated here...). */
-        //        UInt64 RefInode = ((UInt64)attribute->FileReferenceNumber.InodeNumberHighPart << 32) + attribute->FileReferenceNumber.InodeNumberLowPart;
-        //        if (RefInode == node.NodeIndex)
-        //            continue;
+                /* Extract the referenced Inode. If it's the same as the calling Inode then ignore
+                   (if we don't ignore then the program will loop forever, because for some
+                   reason the info in the calling Inode is duplicated here...). */
+                UInt64 RefInode = ((UInt64)attribute->FileReferenceNumber.InodeNumberHighPart << 32) + attribute->FileReferenceNumber.InodeNumberLowPart;
+                //if (RefInode > 0)
+                //{
+                //    return RefInode;
+                //}
+                //if (RefInode == node.NodeIndex)
+                //    continue;
 
-        //        /* Extract the streamname. I don't know why AttributeLists can have names, and
-        //           the name is not used further down. It is only extracted for debugging purposes.
-        //           */
-        //        string streamName;
-        //        if (attribute->NameLength > 0)
-        //            streamName = new string((char*)((UInt64)ptr + AttributeOffset + attribute->NameOffset), 0, attribute->NameLength);
+                /* Extract the streamname. I don't know why AttributeLists can have names, and
+                   the name is not used further down. It is only extracted for debugging purposes.
+                   */
+                string streamName;
+                if (attribute->NameLength > 0)
+                    streamName = new string((char*)((UInt64)ptr + AttributeOffset + attribute->NameOffset), 0, attribute->NameLength);
 
-        //        /* Find the fragment in the MFT that contains the referenced Inode. */
-        //        UInt64 Vcn = 0;
-        //        UInt64 RealVcn = 0;
-        //        UInt64 RefInodeVcn = (RefInode * _diskInfo.BytesPerMftRecord) / (UInt64)(_diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster);
+                /* Find the fragment in the MFT that contains the referenced Inode. */
+                UInt64 Vcn = 0;
+                UInt64 RealVcn = 0;
+                UInt64 RefInodeVcn = (RefInode * _diskInfo.BytesPerMftRecord) / (UInt64)(_diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster);
 
-        //        Stream dataStream = null;
-        //        foreach (Stream stream in mftNode.Streams)
-        //            if (stream.Type == AttributeType.AttributeData)
-        //            {
-        //                dataStream = stream;
-        //                break;
-        //            }
+                //NtfsStream dataStream = null;
+                //foreach (var stream in mftNode.Streams)
+                //    if (stream.Type == AttributeType.AttributeData)
+                //    {
+                //        dataStream = stream;
+                //        break;
+                //    }
 
-        //        Fragment? fragment = null;
-        //        for (int i = 0; i < dataStream.Fragments.Count; ++i)
-        //        {
-        //            fragment = dataStream.Fragments[i];
+                NtfsFragment? fragment = null;
+                for (int i = 0; i < dataStream.Fragments.Count; ++i)
+                {
+                    fragment = dataStream.Fragments[i];
 
-        //            if (fragment.Value.Lcn != VIRTUALFRAGMENT)
-        //            {
-        //                if ((RefInodeVcn >= RealVcn) && (RefInodeVcn < RealVcn + fragment.Value.NextVcn - Vcn))
-        //                    break;
+                    if (fragment.Value.Lcn != VIRTUALFRAGMENT)
+                    {
+                        if ((RefInodeVcn >= RealVcn) && (RefInodeVcn < RealVcn + fragment.Value.NextVcn - Vcn))
+                            break;
 
-        //                RealVcn = RealVcn + fragment.Value.NextVcn - Vcn;
-        //            }
+                        RealVcn = RealVcn + fragment.Value.NextVcn - Vcn;
+                    }
 
-        //            Vcn = fragment.Value.NextVcn;
-        //        }
+                    Vcn = fragment.Value.NextVcn;
+                }
 
-        //        if (fragment == null)
-        //            throw new Exception("Error: Inode %I64u is an extension of Inode %I64u, but does not exist (outside the MFT).");
+                if (fragment == null)
+                    throw new Exception("Error: Inode %I64u is an extension of Inode %I64u, but does not exist (outside the MFT).");
 
-        //        /* Fetch the record of the referenced Inode from disk. */
-        //        byte[] buffer = new byte[_diskInfo.BytesPerMftRecord];
+                /* Fetch the record of the referenced Inode from disk. */
+                byte[] buffer = new byte[_diskInfo.BytesPerMftRecord];
 
-        //        NativeOverlapped overlapped =
-        //            new NativeOverlapped(
-        //                fragment.Value.Lcn - RealVcn * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster + RefInode * _diskInfo.BytesPerMftRecord
-        //                );
+                NativeOverlapped overlapped =
+                    new NativeOverlapped(
+                        fragment.Value.Lcn - RealVcn * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster + RefInode * _diskInfo.BytesPerMftRecord
+                        );
 
-        //        fixed (byte* bufPtr = buffer)
-        //        {
-        //            uint read;
-        //            bool result =
-        //                ReadFile(
-        //                    _volumeHandle,
-        //                    (IntPtr)bufPtr,
-        //                    (UInt32)_diskInfo.BytesPerMftRecord,
-        //                    out read,
-        //                    ref overlapped
-        //                    );
+                fixed (byte* bufPtr = buffer)
+                {
+                    uint read;
+                    bool result =
+                        ReadFile(
+                            _volumeHandle,
+                            (IntPtr)bufPtr,
+                            (UInt32)_diskInfo.BytesPerMftRecord,
+                            out read,
+                            ref overlapped
+                            );
 
-        //            if (!result)
-        //                throw new Exception("error reading disk");
+                    if (!result)
+                        return 0;
+                        /// throw new Exception("error reading disk");
 
-        //            /* Fixup the raw data. */
-        //            FixupRawMftdata(bufPtr, _diskInfo.BytesPerMftRecord);
+                        /* Fixup the raw data. */
+                        FixupRawMftdata(bufPtr, _diskInfo.BytesPerMftRecord);
 
-        //            /* If the Inode is not in use then skip. */
-        //            FileRecordHeader* fileRecordHeader = (FileRecordHeader*)bufPtr;
-        //            if ((fileRecordHeader->Flags & 1) != 1)
-        //                continue;
+                    /* If the Inode is not in use then skip. */
+                    FileRecordHeader* fileRecordHeader = (FileRecordHeader*)bufPtr;
+                    if ((fileRecordHeader->Flags & 1) != 1)
+                        continue;
 
-        //            ///* If the BaseInode inside the Inode is not the same as the calling Inode then
-        //            //   skip. */
-        //            UInt64 baseInode = ((UInt64)fileRecordHeader->BaseFileRecord.InodeNumberHighPart << 32) + fileRecordHeader->BaseFileRecord.InodeNumberLowPart;
-        //            if (node.NodeIndex != baseInode)
-        //                continue;
+                    ///* If the BaseInode inside the Inode is not the same as the calling Inode then
+                    //   skip. */
+                    UInt64 baseInode = ((UInt64)fileRecordHeader->BaseFileRecord.InodeNumberHighPart << 32) + fileRecordHeader->BaseFileRecord.InodeNumberLowPart;
 
-        //            ///* Process the list of attributes in the Inode, by recursively calling the
-        //            //   ProcessAttributes() subroutine. */
-        //            ProcessAttributes(
-        //                node,
-        //                bufPtr + fileRecordHeader->AttributeOffset,
-        //                _diskInfo.BytesPerMftRecord - fileRecordHeader->AttributeOffset,
-        //                attribute->Instance,
-        //                depth + 1
-        //                );
-        //        }
-        //    }
-        //}
+                    //if (baseInode > 0)
+                    {
+                        return baseInode;
+                    }
+
+                    //if (node.NodeIndex != baseInode)
+                    //    continue;
+
+                    ///* Process the list of attributes in the Inode, by recursively calling the
+                    //   ProcessAttributes() subroutine. */
+                    //ProcessAttributes(
+                    //    node,
+                    //    bufPtr + fileRecordHeader->AttributeOffset,
+                    //    _diskInfo.BytesPerMftRecord - fileRecordHeader->AttributeOffset,
+                    //    attribute->Instance,
+                    //    depth + 1
+                    //    );
+                }
+            }
+            return 0;
+        }
+
 
         /// <summary>
         /// Process fragments for streams
         /// </summary>
         private unsafe void ProcessFragments(
             ref Node node,
-            Stream stream,
+            NtfsStream ntfsStream,
             byte* runData,
             UInt32 runDataLength,
             UInt64 StartingVcn)
@@ -1289,12 +896,12 @@ namespace System.IO.Filesystem.Ntfs
                 if (++index >= runDataLength)
                     throw new Exception("Error: datarun is longer than buffer, the MFT may be corrupt.");
 
-                Int64 runLength = 
+                Int64 runLength =
                     ProcessRunLength(runData, runDataLength, runLengthSize, ref index);
 
                 Int64 runOffset =
                     ProcessRunOffset(runData, runDataLength, runOffsetSize, ref index);
-             
+
                 lcn += runOffset;
                 vcn += runLength;
 
@@ -1303,23 +910,25 @@ namespace System.IO.Filesystem.Ntfs
                    occupy clusters on disk, but are information used by compressed
                    and sparse files. */
                 if (runOffset != 0)
-                    stream.Clusters += (UInt64)runLength;
+                    ntfsStream.Clusters += (UInt64)runLength;
 
-                stream.Fragments.Add(
-                    new Fragment(
+                ntfsStream.Fragments.Add(
+                    new NtfsFragment(
                         runOffset == 0 ? VIRTUALFRAGMENT : (UInt64)lcn,
                         (UInt64)vcn
                     )
                 );
             }
         }
-        
+
         /// <summary>
         /// Process an actual MFT record from the buffer
         /// </summary>
-        private unsafe bool ProcessMftRecord(byte* buffer, UInt64 length, UInt32 nodeIndex, out Node node, List<Stream> streams, bool isMftNode)
+        private unsafe bool ProcessMftRecord(byte* buffer, UInt64 length, UInt32 nodeIndex, out Node node, List<NtfsStream> streams, bool isMftNode)
         {
             node = new Node();
+
+            node.NodeIndex = nodeIndex;
 
             FileRecordHeader* ntfsFileRecordHeader = (FileRecordHeader*)buffer;
 
@@ -1344,7 +953,7 @@ namespace System.IO.Filesystem.Ntfs
 
             //make the file appear in the rootdirectory by default
             node.ParentNodeIndex = ROOTDIRECTORY;
-            
+
             if ((ntfsFileRecordHeader->Flags & 2) == 2)
                 node.Attributes |= Attributes.Directory;
 
@@ -1356,16 +965,16 @@ namespace System.IO.Filesystem.Ntfs
         /// <summary>
         /// Process the bitmap data that contains information on inode usage.
         /// </summary>
-        private unsafe byte[] ProcessBitmapData(List<Stream> streams)
+        private unsafe byte[] ProcessBitmapData(List<NtfsStream> streams)
         {
             UInt64 Vcn = 0;
             UInt64 MaxMftBitmapBytes = 0;
 
-            Stream bitmapStream = SearchStream(streams, AttributeType.AttributeBitmap);
-            if (bitmapStream == null)
+            NtfsStream bitmapNtfsStream = SearchStream(streams, AttributeType.AttributeBitmap);
+            if (bitmapNtfsStream == null)
                 throw new Exception("No Bitmap Data");
 
-            foreach (Fragment fragment in bitmapStream.Fragments)
+            foreach (NtfsFragment fragment in bitmapNtfsStream.Fragments)
             {
                 if (fragment.Lcn != VIRTUALFRAGMENT)
                     MaxMftBitmapBytes += (fragment.NextVcn - Vcn) * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster;
@@ -1380,7 +989,7 @@ namespace System.IO.Filesystem.Ntfs
                 Vcn = 0;
                 UInt64 RealVcn = 0;
 
-                foreach (Fragment fragment in bitmapStream.Fragments)
+                foreach (NtfsFragment fragment in bitmapNtfsStream.Fragments)
                 {
                     if (fragment.Lcn != VIRTUALFRAGMENT)
                     {
@@ -1400,131 +1009,185 @@ namespace System.IO.Filesystem.Ntfs
             return bitmapData;
         }
 
+        internal IEnumerable<Node> EnumFiles()
+        {
+            return ProcessMft();
+        }
+
+        NtfsStream _mftDataStream;
         /// <summary>
         /// Begin the process of interpreting MFT data
         /// </summary>
-        private unsafe Node[] ProcessMft()
+        private IEnumerable<Node> ProcessMft()
         {
             //64 KB seems to be optimal for Windows XP, Vista is happier with 256KB...
-            uint bufferSize =
-                (Environment.OSVersion.Version.Major >= 6 ? 256u : 64u) * 1024;
+            uint bufferSize = (Environment.OSVersion.Version.Major >= 6 ? 256u : 64u) * 1024;
+
+            //            if ((_retrieveMode & RetrieveMode.StandardInformations) == RetrieveMode.StandardInformations)
+            //                _standardInformations = new StandardInformation[1]; //allocate some space for $MFT record
+
+            List<NtfsStream> mftStreams = new List<NtfsStream>();
 
             byte[] data = new byte[bufferSize];
 
-            fixed (byte* buffer = data)
+            ReadMftStreams(mftStreams, data);
+
+            //the bitmap data contains all used inodes on the disk
+            _bitmapData = ProcessBitmapData(mftStreams);
+
+            OnBitmapDataAvailable();
+
+            NtfsStream dataNtfsStream = SearchStream(mftStreams, AttributeType.AttributeData);
+
+            this._mftDataStream = dataNtfsStream;
+
+            UInt32 maxInode = (UInt32)_bitmapData.Length * 8;
+            if (maxInode > (UInt32)(dataNtfsStream.Size / _diskInfo.BytesPerMftRecord))
+                maxInode = (UInt32)(dataNtfsStream.Size / _diskInfo.BytesPerMftRecord);
+
+            //Node[] nodes = new Node[maxInode];
+            //nodes[0] = mftNode;
+
+            //            if ((_retrieveMode & RetrieveMode.StandardInformations) == RetrieveMode.StandardInformations)
+            //            {
+            //                StandardInformation mftRecordInformation = _standardInformations[0];
+            //                _standardInformations = new StandardInformation[maxInode];
+            //                _standardInformations[0] = mftRecordInformation;
+            //            }
+
+            //            if ((_retrieveMode & RetrieveMode.Streams) == RetrieveMode.Streams)
+            //                _streams = new Stream[maxInode][];
+
+
+            /* Read and process all the records in the MFT. The records are read into a
+                     buffer and then given one by one to the InterpretMftRecord() subroutine. */
+
+            UInt64 BlockStart = 0, BlockEnd = 0;
+            UInt64 RealVcn = 0, Vcn = 0;
+
+            ulong totalBytesRead = 0;
+            int fragmentIndex = 0;
+            int fragmentCount = dataNtfsStream.Fragments.Count;
+
+            (int, Node) ReadNextNode(UInt32 nodeIndex)
             {
-                //Read the $MFT record from disk into memory, which is always the first record in the MFT. 
-                ReadFile(buffer, _diskInfo.BytesPerMftRecord, _diskInfo.MftStartLcn * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster);
-
-                //Fixup the raw data from disk. This will also test if it's a valid $MFT record.
-                FixupRawMftdata(buffer, _diskInfo.BytesPerMftRecord);
-
-                List<Stream> mftStreams = new List<Stream>();
-
-                if ((_retrieveMode & RetrieveMode.StandardInformations) == RetrieveMode.StandardInformations)
-                    _standardInformations = new StandardInformation[1]; //allocate some space for $MFT record
-
-                Node mftNode;
-                if (!ProcessMftRecord(buffer, _diskInfo.BytesPerMftRecord, 0, out mftNode, mftStreams, true))
-                    throw new Exception("Can't interpret Mft Record");
-
-                //the bitmap data contains all used inodes on the disk
-                _bitmapData =
-                    ProcessBitmapData(mftStreams);
-
-                OnBitmapDataAvailable();
-
-                Stream dataStream = SearchStream(mftStreams, AttributeType.AttributeData);
-
-                UInt32 maxInode = (UInt32)_bitmapData.Length * 8;
-                if (maxInode > (UInt32)(dataStream.Size / _diskInfo.BytesPerMftRecord))
-                    maxInode = (UInt32)(dataStream.Size / _diskInfo.BytesPerMftRecord);
-
-                Node[] nodes = new Node[maxInode];
-                nodes[0] = mftNode;
-
-                if ((_retrieveMode & RetrieveMode.StandardInformations) == RetrieveMode.StandardInformations)
+                unsafe
                 {
-                    StandardInformation mftRecordInformation = _standardInformations[0];
-                    _standardInformations = new StandardInformation[maxInode];
-                    _standardInformations[0] = mftRecordInformation;
-                }
-
-                if ((_retrieveMode & RetrieveMode.Streams) == RetrieveMode.Streams)
-                    _streams = new Stream[maxInode][];
-
-                /* Read and process all the records in the MFT. The records are read into a
-                   buffer and then given one by one to the InterpretMftRecord() subroutine. */
-
-                UInt64 BlockStart = 0, BlockEnd = 0;
-                UInt64 RealVcn = 0, Vcn = 0;
-
-                Stopwatch stopwatch = new Stopwatch();
-                stopwatch.Start();
-
-                ulong totalBytesRead = 0;
-                int fragmentIndex = 0;
-                int fragmentCount = dataStream.Fragments.Count;
-                for (UInt32 nodeIndex = 1; nodeIndex < maxInode; nodeIndex++)
-                {
-                    // Ignore the Inode if the bitmap says it's not in use.
-                    if ((_bitmapData[nodeIndex >> 3] & BitmapMasks[nodeIndex % 8]) == 0)
-                        continue;
-
-                    if (nodeIndex >= BlockEnd)
+                    fixed (byte* buffer = data)
                     {
-                        if (!ReadNextChunk(
-                                buffer,
-                                bufferSize, 
-                                nodeIndex, 
-                                fragmentIndex,
-                                dataStream, 
-                                ref BlockStart, 
-                                ref BlockEnd, 
-                                ref Vcn, 
-                                ref RealVcn))
-                            break;
-
-                        totalBytesRead += (BlockEnd - BlockStart) * _diskInfo.BytesPerMftRecord;
-                    }
-
-                    FixupRawMftdata(
-                            buffer + (nodeIndex - BlockStart) * _diskInfo.BytesPerMftRecord,
-                            _diskInfo.BytesPerMftRecord
-                        );
-
-                    List<Stream> streams = null;
-                    if ((_retrieveMode & RetrieveMode.Streams) == RetrieveMode.Streams)
-                        streams = new List<Stream>();
-
-                    Node newNode;
-                    if (!ProcessMftRecord(
-                            buffer + (nodeIndex - BlockStart) * _diskInfo.BytesPerMftRecord,
-                            _diskInfo.BytesPerMftRecord,
+                        if (nodeIndex >= BlockEnd)
+                        {
+                            if (!ReadNextChunk(
+                            buffer,
+                            bufferSize,
                             nodeIndex,
-                            out newNode,
-                            streams,
-                            false))
-                        continue;
+                            fragmentIndex,
+                            dataNtfsStream,
+                            ref BlockStart,
+                            ref BlockEnd,
+                            ref Vcn,
+                            ref RealVcn))
+                                return (-1, default(Node));// break;
 
-                    nodes[nodeIndex] = newNode;
+                            totalBytesRead += (BlockEnd - BlockStart) * _diskInfo.BytesPerMftRecord;
+                        }
 
-                    if (streams != null)
-                        _streams[nodeIndex] = streams.ToArray();
+                        FixupRawMftdata(
+                                buffer + (nodeIndex - BlockStart) * _diskInfo.BytesPerMftRecord,
+                                _diskInfo.BytesPerMftRecord
+                            );
+
+                        List<NtfsStream> streams = null;
+                        if ((_retrieveMode & RetrieveMode.Streams) == RetrieveMode.Streams)
+                            streams = new List<NtfsStream>();
+
+                        Node newNode;
+                        if (!ProcessMftRecord(
+                                buffer + (nodeIndex - BlockStart) * _diskInfo.BytesPerMftRecord,
+                                _diskInfo.BytesPerMftRecord,
+                                nodeIndex,
+                                out newNode,
+                                streams,
+                                false))
+                        {
+                            return (0, default(Node));//continue;
+                        }
+                        else
+                        {
+                            return (1, newNode);//continue;
+                        }
+                    }
                 }
+            }
 
-                stopwatch.Stop();
 
-                Trace.WriteLine(
-                    string.Format(
-                        "{0:F3} MB of volume metadata has been read in {1:F3} s at {2:F3} MB/s", 
-                        (float)totalBytesRead / (1024*1024),
-                        (float)stopwatch.Elapsed.TotalSeconds,
-                        ((float)totalBytesRead / (1024*1024)) / stopwatch.Elapsed.TotalSeconds
-                    )
-                );
+            //Stopwatch stopwatch = new Stopwatch();
+            //stopwatch.Start();
 
-                return nodes;
+
+            for (UInt32 nodeIndex = 1; nodeIndex < maxInode; nodeIndex++)
+            {
+                // Ignore the Inode if the bitmap says it's not in use.
+                if ((_bitmapData[nodeIndex >> 3] & BitmapMasks[nodeIndex % 8]) == 0)
+                    continue;
+                var ret = ReadNextNode(nodeIndex);
+                switch (ret.Item1)
+                {
+                    case 0:
+                        continue;
+                    case -1:
+                        break;
+                    case 1:
+                    default:
+                        //nodes[nodeIndex] = newNode;
+                        //if (streams != null)
+                        //    _streams[nodeIndex] = streams.ToArray();
+                        //ret.Item2.Streams = streams;
+                        if (ret.Item2.Name == null)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            yield return ret.Item2;
+                        }
+                        break;
+                }
+            }
+
+            //stopwatch.Stop();
+
+            //Trace.WriteLine(
+            //    string.Format(
+            //        "{0:F3} MB of volume metadata has been read in {1:F3} s at {2:F3} MB/s", 
+            //        (float)totalBytesRead / (1024*1024),
+            //        (float)stopwatch.Elapsed.TotalSeconds,
+            //        ((float)totalBytesRead / (1024*1024)) / stopwatch.Elapsed.TotalSeconds
+            //    )
+            //);
+
+            //return nodes;
+        }
+
+        private void ReadMftStreams(List<NtfsStream> mftStreams, byte[] data)
+        {
+            unsafe
+            {
+                fixed (byte* buffer = data)
+                {
+                    //Read the $MFT record from disk into memory, which is always the first record in the MFT. 
+                    ReadFile(buffer, _diskInfo.BytesPerMftRecord, _diskInfo.MftStartLcn * _diskInfo.BytesPerSector * _diskInfo.SectorsPerCluster);
+
+                    //Fixup the raw data from disk. This will also test if it's a valid $MFT record.
+                    FixupRawMftdata(buffer, _diskInfo.BytesPerMftRecord);
+                    /*
+                    the root Node:
+                    nodes[0] = mftNode;
+                     */
+                    Node mftNode;
+                    if (!ProcessMftRecord(buffer, _diskInfo.BytesPerMftRecord, 0, out mftNode, mftStreams, true))
+                        throw new Exception("Can't interpret Mft Record");
+                }
             }
         }
 

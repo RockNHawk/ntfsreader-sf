@@ -35,7 +35,7 @@ using System.Collections.Generic;
 
 namespace System.IO.Filesystem.Ntfs
 {
-    public partial class NtfsReader
+    internal partial class NtfsReader
     {
         [DllImport("kernel32", CharSet = CharSet.Auto, BestFitMapping = false)]
         private static extern bool GetVolumeNameForVolumeMountPoint(String volumeName, StringBuilder uniqueVolumeName, int uniqueNameBufferCapacity);
@@ -128,7 +128,7 @@ namespace System.IO.Filesystem.Ntfs
             All = Read | Write | Create | Exec | Delete | Atrib | Perm,
             Group = 0x8000
         }
-        
+
         private enum NetworkResult : uint
         {
             Success = 0,
@@ -162,21 +162,21 @@ namespace System.IO.Filesystem.Ntfs
             const uint MAX_PREFERRED_LENGTH = 0xFFFFFFFF;
 
             List<NetworkShare> networkShares = new List<NetworkShare>();
-            
+
             int entriesRead = 0, totalEntries = 0, resumeHandle = 0;
             int structSize = Marshal.SizeOf(typeof(NetworkShare));
-            
+
             StringBuilder server = new StringBuilder(Environment.MachineName);
 
             IntPtr bufPtr = IntPtr.Zero;
 
             NetworkResult result =
                 (NetworkResult)NetShareEnum(
-                    server, 
+                    server,
                     2,
-                    ref bufPtr, 
-                    MAX_PREFERRED_LENGTH, 
-                    ref entriesRead, 
+                    ref bufPtr,
+                    MAX_PREFERRED_LENGTH,
+                    ref entriesRead,
                     ref totalEntries,
                     ref resumeHandle
                     );

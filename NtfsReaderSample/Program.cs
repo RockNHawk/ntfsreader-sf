@@ -29,6 +29,7 @@
     mailto:zerk666@gmail.com
 */
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Filesystem.Ntfs;
@@ -138,34 +139,49 @@ namespace NtfsReaderSample
         {
             Trace.Listeners.Add(new TextWriterTraceListener(Console.Out));
 
-            DriveInfo driveToAnalyze = new DriveInfo("c");
 
-            NtfsReader ntfsReader = 
-                new NtfsReader(driveToAnalyze, RetrieveMode.All);
+            int allCount = 0;
+            var drives = DriveInfo.GetDrives().Where(x => x.IsReady && x.DriveFormat == "NTFS").ToArray();
+            // DriveInfo driveToAnalyze = new DriveInfo("c");
 
-            IEnumerable<INode> nodes =
-                ntfsReader.GetNodes(driveToAnalyze.Name);
 
-            int directoryCount = 0, fileCount = 0;
-            foreach (INode node in nodes)
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+
+            foreach (var driveToAnalyze in drives)
             {
-                if ((node.Attributes & Attributes.Directory) != 0)
-                    directoryCount++;
-                else
-                    fileCount++;
+                var ntfsReader =
+                    new NtfsReader(driveToAnalyze, RetrieveMode.All);
+
+                var nodes = ntfsReader.GetNodes(driveToAnalyze.Name);
+                allCount += nodes.Count;
+
+                Console.WriteLine($"{driveToAnalyze.Name}, file count: {nodes.Count},time:{sw.Elapsed.TotalSeconds}s");
+
+                int directoryCount = 0, fileCount = 0;
+                foreach (INode node in nodes)
+                {
+                    if ((node.Attributes & Attributes.Directory) != 0)
+                        directoryCount++;
+                    else
+                        fileCount++;
+                }
+
+                Console.WriteLine(
+                    string.Format(
+                        "Directory Count: {0}, File Count {1}\r\n",
+                        directoryCount,
+                        fileCount
+                    )
+                  );
+
+                //AnalyzeFragmentation(nodes, driveToAnalyze);
+
+                //AnalyzeSimilarity(nodes, driveToAnalyze);
             }
 
-            Console.WriteLine(
-                string.Format(
-                    "Directory Count: {0}, File Count {1}",
-                    directoryCount,
-                    fileCount
-                )
-            );
-
-            AnalyzeFragmentation(nodes, driveToAnalyze);
-
-            AnalyzeSimilarity(nodes, driveToAnalyze);
+            sw.Stop();
+            Console.WriteLine($"All file count: {allCount},time:{sw.Elapsed.TotalSeconds}s");
         }
     }
 }

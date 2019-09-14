@@ -28,6 +28,7 @@
     Software Architect
     mailto:zerk666@gmail.com
 */
+/*
 using System.Collections.Generic;
 
 namespace System.IO.Filesystem.Ntfs
@@ -35,18 +36,19 @@ namespace System.IO.Filesystem.Ntfs
     /// <summary>
     /// Directory & Files Information are stored in inodes
     /// </summary>
-    public interface INode
+    internal interface INode
     {
         Attributes Attributes { get; }
         UInt32 NodeIndex { get; }
         UInt32 ParentNodeIndex { get; }
         string Name { get; }
         UInt64 Size { get; }
-        string FullName { get; }
-        IList<IStream> Streams { get; }
+//        string FullName { get; }
+        //IList<NtfsStream> Streams { get; }
 
         DateTime CreationTime { get; }
         DateTime LastChangeTime { get; }
         DateTime LastAccessTime { get; }
     }
 }
+*/
