@@ -62,7 +62,7 @@ namespace System.IO.Filesystem.Ntfs
         public UInt64 CreationTime;
         public UInt64 LastAccessTime;
         public UInt64 LastChangeTime;
-        public Guid FileReferenceNumber;
+       // public Guid FileReferenceNumber;
 
         public StandardInformation(
             UInt64 creationTime,
