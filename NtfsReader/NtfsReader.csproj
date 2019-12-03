@@ -64,9 +64,6 @@
     <Content Include="License.txt" />
     <Content Include="Todo.txt" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="MSBuildGitHash" Version="0.4.1" />
-  </ItemGroup>
   <!-- <ItemGroup>
     <None Include="NtfsReader.snk" />
   </ItemGroup> -->
