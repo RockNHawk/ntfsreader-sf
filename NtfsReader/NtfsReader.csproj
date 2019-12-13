@@ -64,6 +64,9 @@
     <Content Include="License.txt" />
     <Content Include="Todo.txt" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Spreads.LMDB" Version="2019.0.915" />
+  </ItemGroup>
   <!-- <ItemGroup>
     <None Include="NtfsReader.snk" />
   </ItemGroup> -->

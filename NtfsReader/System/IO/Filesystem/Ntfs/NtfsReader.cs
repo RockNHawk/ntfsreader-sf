@@ -468,8 +468,9 @@ namespace System.IO.Filesystem.Ntfs
             //AttributeList* attributeList = null;
 
 //           Guid? fileReferenceNumber ;
-
-            for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
+            unchecked
+            {
+                for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
             {
                 attribute = (Attribute*)(ptr + AttributeOffset);
 
@@ -536,8 +537,13 @@ namespace System.IO.Filesystem.Ntfs
 
                             node.ParentNodeIndex = attributeFileName->ParentDirectory.InodeNumberLowPart;
 
-                            if (node.Name == null || attributeFileName->NameType == 1)
-                                node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+                                if (node.NamePtr == null || attributeFileName->NameType == 1)
+                                {
+                                    node.NameLength = attributeFileName->NameLength;
+                                    node.NamePtr = &attributeFileName->Name;
+                                }
+//                            if (node.Name == null || attributeFileName->NameType == 1)
+//                                node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
 
                             //FileReferenceNumber = ((UInt64)attributeFileName->ParentDirectory.InodeNumberHighPart << 32) + attributeFileName->ParentDirectory.InodeNumberLowPart;
 
@@ -642,6 +648,7 @@ namespace System.IO.Filesystem.Ntfs
             }
 
 
+            }
 
 
             //for (uint AttributeOffset = 0; AttributeOffset < BufLength; AttributeOffset = AttributeOffset + attribute->Length)
@@ -1143,7 +1150,8 @@ namespace System.IO.Filesystem.Ntfs
                         //if (streams != null)
                         //    _streams[nodeIndex] = streams.ToArray();
                         //ret.Item2.Streams = streams;
-                        if (ret.Item2.Name == null)
+                        //if (ret.Item2.Name == null)
+                        if (ret.Item2.NameLength == 0)
                         {
                             continue;
                         }

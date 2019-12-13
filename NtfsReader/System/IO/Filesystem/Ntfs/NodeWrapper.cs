@@ -32,7 +32,7 @@ namespace System.IO.Filesystem.Ntfs
 
         public string Name
         {
-            get { return _node.Name; }
+            get { return _node.GetName(); }
         }
 
         public UInt64 Size

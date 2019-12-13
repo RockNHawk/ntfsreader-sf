@@ -43,20 +43,37 @@ namespace System.IO.Filesystem.Ntfs
     /// We keep this as small as possible to reduce footprint for large volume.
     /// </remarks>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    internal struct Node
+   // [Spreads.Serialization.BinarySerialization(53)]
+    internal unsafe struct Node
     {
         public Attributes Attributes;
         public UInt32 NodeIndex;
         public UInt32 ParentNodeIndex;
         public UInt64 Size;
         public StandardInformation StandardInformation;
-        public string Name;
+        //public string Name;
+        
+        /*
+         * Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+         */
+        public byte NameLength;
+        public char* NamePtr;
+
+        public string GetName()
+        {
+            return new string(NamePtr, 0, NameLength);
+        }
+        public  Span<char> GetNameSpan()
+        {
+            return new Span<char>(NamePtr,  NameLength);
+        }
     }
 
     /// <summary>
     /// Contains extra information not required for basic purposes.
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
+   // [Spreads.Serialization.BinarySerialization]
     struct StandardInformation
     {
         public UInt64 CreationTime;
