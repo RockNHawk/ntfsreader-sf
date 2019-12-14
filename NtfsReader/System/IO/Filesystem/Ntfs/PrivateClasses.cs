@@ -33,7 +33,6 @@ namespace System.IO.Filesystem.Ntfs
                 return _fragments;
             }
         }
-
     }
 
     /// <summary>
@@ -42,23 +41,21 @@ namespace System.IO.Filesystem.Ntfs
     /// <remarks>
     /// We keep this as small as possible to reduce footprint for large volume.
     /// </remarks>
-    [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 445)]
-    [Spreads.Serialization.BinarySerialization(445)]
-    internal unsafe struct Node
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    internal struct Node
     {
         public Attributes Attributes;
         public UInt32 NodeIndex;
         public UInt32 ParentNodeIndex;
         public UInt64 Size;
         public StandardInformation StandardInformation;
-        public string Name;
+        public byte NameLength;
 
         /*
-         * Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
-         */
-        public byte NameLength;
+     * Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+     */
+        public string Name;
         //public char* NamePtr;
-
         //public fixed sbyte Name[200];
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -72,6 +69,7 @@ namespace System.IO.Filesystem.Ntfs
 //                return new string(p, 0, NameLength);
 //            }
         }
+
         //public Span<char> GetNameSpan()
         //{
         //    //fixed (char* p = Name)
@@ -87,18 +85,19 @@ namespace System.IO.Filesystem.Ntfs
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     // [Spreads.Serialization.BinarySerialization]
-    struct StandardInformation
+    readonly struct StandardInformation
     {
-        public UInt64 CreationTime;
-        public UInt64 LastAccessTime;
-        public UInt64 LastChangeTime;
+        public readonly UInt64 CreationTime;
+        public readonly UInt64 LastAccessTime;
+
+        public readonly UInt64 LastChangeTime;
         // public Guid FileReferenceNumber;
 
         public StandardInformation(
             UInt64 creationTime,
             UInt64 lastAccessTime,
             UInt64 lastChangeTime
-        // Guid fileReferenceNumber
+            // Guid fileReferenceNumber
         )
         {
             CreationTime = creationTime;
