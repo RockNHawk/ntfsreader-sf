@@ -33,7 +33,7 @@ namespace System.IO.Filesystem.Ntfs
                 return _fragments;
             }
         }
-        
+
     }
 
     /// <summary>
@@ -42,8 +42,8 @@ namespace System.IO.Filesystem.Ntfs
     /// <remarks>
     /// We keep this as small as possible to reduce footprint for large volume.
     /// </remarks>
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-   // [Spreads.Serialization.BinarySerialization(53)]
+    [StructLayout(LayoutKind.Sequential, Pack = 1, Size = 445)]
+    [Spreads.Serialization.BinarySerialization(445)]
     internal unsafe struct Node
     {
         public Attributes Attributes;
@@ -51,79 +51,92 @@ namespace System.IO.Filesystem.Ntfs
         public UInt32 ParentNodeIndex;
         public UInt64 Size;
         public StandardInformation StandardInformation;
-        //public string Name;
-        
+        public string Name;
+
         /*
          * Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
          */
         public byte NameLength;
-        public char* NamePtr;
+        //public char* NamePtr;
 
+        //public fixed sbyte Name[200];
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public string GetName()
         {
-            return new string(NamePtr, 0, NameLength);
+            return this.Name;
+            //var s = new string(NamePtr, 0, NameLength);
+            //return s;
+//            fixed (sbyte* p = Name)
+//            {
+//                return new string(p, 0, NameLength);
+//            }
         }
-        public  Span<char> GetNameSpan()
-        {
-            return new Span<char>(NamePtr,  NameLength);
-        }
+        //public Span<char> GetNameSpan()
+        //{
+        //    //fixed (char* p = Name)
+        //    //{
+        //    //    return new Span<char>(p, NameLength);
+        //    //}
+        //    return new Span<char>(NamePtr, NameLength);
+        //}
     }
 
     /// <summary>
     /// Contains extra information not required for basic purposes.
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-   // [Spreads.Serialization.BinarySerialization]
+    // [Spreads.Serialization.BinarySerialization]
     struct StandardInformation
     {
         public UInt64 CreationTime;
         public UInt64 LastAccessTime;
         public UInt64 LastChangeTime;
-       // public Guid FileReferenceNumber;
+        // public Guid FileReferenceNumber;
 
         public StandardInformation(
             UInt64 creationTime,
             UInt64 lastAccessTime,
             UInt64 lastChangeTime
-           // Guid fileReferenceNumber
+        // Guid fileReferenceNumber
         )
         {
             CreationTime = creationTime;
             LastAccessTime = lastAccessTime;
             LastChangeTime = lastChangeTime;
-           // FileReferenceNumber = fileReferenceNumber;
+            // FileReferenceNumber = fileReferenceNumber;
         }
     }
-/*
-    /// <summary>
-    /// Add some functionality to the basic stream
-    /// </summary>
-    sealed class NtfsFragmentWrapper : IFragment
-    {
-        NtfsStreamWrapper _owner;
-        NtfsFragment _ntfsFragment;
-
-        public NtfsFragmentWrapper(NtfsStreamWrapper owner, NtfsFragment ntfsFragment)
+    /*
+        /// <summary>
+        /// Add some functionality to the basic stream
+        /// </summary>
+        sealed class NtfsFragmentWrapper : IFragment
         {
-            _owner = owner;
-            _ntfsFragment = ntfsFragment;
+            NtfsStreamWrapper _owner;
+            NtfsFragment _ntfsFragment;
+
+            public NtfsFragmentWrapper(NtfsStreamWrapper owner, NtfsFragment ntfsFragment)
+            {
+                _owner = owner;
+                _ntfsFragment = ntfsFragment;
+            }
+
+            #region IFragment Members
+
+            public ulong Lcn
+            {
+                get { return _ntfsFragment.Lcn; }
+            }
+
+            public ulong NextVcn
+            {
+                get { return _ntfsFragment.NextVcn; }
+            }
+
+            #endregion
         }
-
-        #region IFragment Members
-
-        public ulong Lcn
-        {
-            get { return _ntfsFragment.Lcn; }
-        }
-
-        public ulong NextVcn
-        {
-            get { return _ntfsFragment.NextVcn; }
-        }
-
-        #endregion
-    }
-*/
+    */
 
     /*
     /// <summary>
@@ -179,6 +192,6 @@ namespace System.IO.Filesystem.Ntfs
         #endregion
     }
 */
-    
+
     #endregion
 }

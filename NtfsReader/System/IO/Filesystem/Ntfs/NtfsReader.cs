@@ -537,14 +537,25 @@ namespace System.IO.Filesystem.Ntfs
 
                             node.ParentNodeIndex = attributeFileName->ParentDirectory.InodeNumberLowPart;
 
-                                if (node.NamePtr == null || attributeFileName->NameType == 1)
-                                {
-                                    node.NameLength = attributeFileName->NameLength;
-                                    node.NamePtr = &attributeFileName->Name;
-                                }
-//                            if (node.Name == null || attributeFileName->NameType == 1)
-//                                node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
-
+//                                if (node.NameLength == 0 && attributeFileName->NameType == 1)
+//                                {
+//                                    node.NameLength = attributeFileName->NameLength;
+//                                    //node.NamePtr = &attributeFileName->Name;
+////                                    fixed (char* p = node.Name)
+////                                    {
+////                                        *p = attributeFileName->Name;
+////                                    }
+//                                    fixed (sbyte* p = node.Name)
+//                                    {
+//                                        var str = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+//                                        *p = &str;
+//                                    }
+//                                }
+                            if (node.Name == null || attributeFileName->NameType == 1)
+                            {
+                                node.NameLength = attributeFileName->NameLength;
+                                node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);
+                            }
                             //FileReferenceNumber = ((UInt64)attributeFileName->ParentDirectory.InodeNumberHighPart << 32) + attributeFileName->ParentDirectory.InodeNumberLowPart;
 
                             ////if (node.StandardInformation!=null)
