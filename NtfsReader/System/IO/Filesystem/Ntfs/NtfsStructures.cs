@@ -189,7 +189,7 @@ namespace System.IO.Filesystem.Ntfs
     };
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct NtfsFragment
+     struct NtfsFragment
     {
         public UInt64 Lcn; // Logical cluster number, location on disk.
         public UInt64 NextVcn; // Virtual cluster number of next fragment.

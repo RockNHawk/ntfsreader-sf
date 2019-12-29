@@ -5,8 +5,7 @@
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
-      <TargetFrameworks>netstandard2.0</TargetFrameworks>
-
+    <TargetFramework>netcoreapp3.0</TargetFramework>
   </PropertyGroup>
   
   <PropertyGroup>

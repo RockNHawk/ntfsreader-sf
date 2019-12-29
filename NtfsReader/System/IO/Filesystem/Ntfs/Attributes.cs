@@ -34,7 +34,7 @@ namespace System.IO.Filesystem.Ntfs
     /// Node attributes.
     /// </summary>
     [Flags]
-    public enum Attributes : uint
+     enum Attributes : uint
     {
         /// <summary>
         /// The file is read-only.

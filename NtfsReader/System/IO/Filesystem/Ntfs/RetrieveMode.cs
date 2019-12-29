@@ -34,7 +34,7 @@ namespace System.IO.Filesystem.Ntfs
     /// Allow one to retrieve only needed information to reduce memory footprint.
     /// </summary>
     [Flags]
-    public enum RetrieveMode
+     enum RetrieveMode
     {
         /// <summary>
         /// Includes the name, size, attributes and hierarchical information only.

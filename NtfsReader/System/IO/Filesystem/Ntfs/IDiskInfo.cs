@@ -33,7 +33,7 @@ namespace System.IO.Filesystem.Ntfs
     /// <summary>
     /// Disk information
     /// </summary>
-    public interface IDiskInfo
+     interface IDiskInfo
     {
         UInt16 BytesPerSector { get; }
         byte SectorsPerCluster { get; }
