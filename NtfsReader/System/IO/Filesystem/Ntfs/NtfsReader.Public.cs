@@ -108,7 +108,10 @@ namespace System.IO.Filesystem.Ntfs
                 {
                     yield return item;
                     // yield return new NodeWrapper(this, nodeIndex, item);
-                    nodeIndex++;
+                    unchecked
+                    {
+                        nodeIndex++;
+                    }
                 }
             }
 

@@ -551,7 +551,13 @@ namespace System.IO.Filesystem.Ntfs
 //                                        *p = &str;
 //                                    }
 //                                }
-                            if ( attributeFileName->NameType == 1 && node.Name == null)
+                            /*
+                             *
+                             * here must be
+                             * attributeFileName->NameType == 1 || node.NameLength == 0
+                             * can not be attributeFileName->NameType == 1 && node.NameLength == 0
+                             */
+                            if (attributeFileName->NameType == 1 || node.NameLength == 0)
                             {
                                 node.NameLength = attributeFileName->NameLength;
                                 node.Name = new string(&attributeFileName->Name, 0, attributeFileName->NameLength);

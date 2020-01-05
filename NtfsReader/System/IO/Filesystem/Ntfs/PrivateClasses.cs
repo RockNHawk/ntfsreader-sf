@@ -49,6 +49,7 @@ namespace System.IO.Filesystem.Ntfs
         public UInt32 ParentNodeIndex;
         public UInt64 Size;
         public StandardInformation StandardInformation;
+//        public AttributeStandardInformation StandardInformation;
         public byte NameLength;
 
         /*
